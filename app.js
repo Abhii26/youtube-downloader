@@ -36,7 +36,7 @@ app.post('/download', async (req, res) => {
         } catch (err) {
             console.error('Info fetch failed:', err.message);
             return res.render('index', { error: 'Failed to fetch video information' });
-        }
+        };
 
         const videoTitle = info.title.replace(/[^\w\s]/gi, '');
 
