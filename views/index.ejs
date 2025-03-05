@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Downloader</h1>
+        
+        <% if (error !== null && error !== undefined) { %>
+            <p class="error"><%= error %></p>
+        <% } %>
+
+        <form action="/download" method="POST">
+            <div class="form-group">
+                <label for="url">YouTube URL:</label>
+                <input type="text" id="url" name="url" required placeholder="https://www.youtube.com/watch?v=...">
+            </div>
+
+            <div class="form-group">
+                <label for="format">Format:</label>
+                <select id="format" name="format" required onchange="toggleQuality()">
+                    <option value="mp4">MP4 (Video)</option>
+                    <option value="mp3">MP3 (Audio)</option>
+                </select>
+            </div>
+
+            <div class="form-group quality-group" id="quality-group">
+                <label for="quality">Quality:</label>
+                <select id="quality" name="quality">
+                    <option value="480p">480p</option>
+                    <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
+                </select>
+            </div>
+
+            <button type="submit">Download</button>
+        </form>
+    </div>
+
+    <script>
+        function toggleQuality() {
+            const format = document.getElementById('format').value;
+            const qualityGroup = document.getElementById('quality-group');
+            qualityGroup.style.display = format === 'mp4' ? 'block' : 'none';
+        }
+
+        // Initial call to set correct visibility
+        toggleQuality();
+
+        document.querySelector('form').addEventListener('submit', function(e) {
+            setTimeout(() => {
+                alert('Download has started! Check your Downloads folder.');
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
