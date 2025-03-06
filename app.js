@@ -1,7 +1,11 @@
 const express = require('express');
 const youtubedl = require('youtube-dl-exec');
 const path = require('path');
+const fs = require('fs');
+const { promisify } = require('util');
 const app = express();
+
+const unlinkAsync = promisify(fs.unlink);
 
 // Set up EJS as view engine
 app.set('view engine', 'ejs');
@@ -36,11 +40,9 @@ app.post('/download', async (req, res) => {
         } catch (err) {
             console.error('Info fetch failed:', err.message);
             return res.render('index', { error: 'Failed to fetch video information' });
-        };
+        }
 
         const videoTitle = info.title.replace(/[^\w\s]/gi, '');
-
-        // Set download headers and options
         let filename;
         let contentType;
         let downloadOptions = {};
@@ -51,74 +53,122 @@ app.post('/download', async (req, res) => {
             downloadOptions = {
                 extractAudio: true,
                 audioFormat: 'mp3',
-                audioQuality: 0, // Best audio quality
-                output: '-' // Stream to stdout
+                audioQuality: 0,
+                output: '-'
             };
             console.log('MP3 options:', downloadOptions);
+
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Type', contentType);
+
+            const download = youtubedl.exec(url, downloadOptions);
+            download.stdout.pipe(res);
+
+            download.on('error', (err) => {
+                console.error('MP3 Download error:', err.message);
+                if (!res.headersSent) {
+                    res.render('index', { error: 'Error during MP3 download: ' + err.message });
+                }
+            });
+            download.on('end', () => console.log('MP3 Download completed'));
         } else if (format === 'mp4') {
             filename = `${videoTitle}.mp4`;
             contentType = 'video/mp4';
 
-            // Specific format codes for reliable video+audio
+            // Temporary file for 1080p or fallback merging
+            const tempFile = path.join(__dirname, `${videoTitle}-${Date.now()}.mp4`);
+
+            // Get available formats
+            const formats = info.formats;
             let formatCode;
+
             switch (quality) {
                 case '480p':
-                    formatCode = '18'; // 480p MP4 (H.264, AAC)
+                    formatCode = formats.find(f => f.format_id === '18') ? '18' : 'bestvideo[height<=480]+bestaudio/best[height<=480]';
+                    downloadOptions = {
+                        format: formatCode,
+                        mergeOutputFormat: 'mp4',
+                        output: formatCode === '18' ? '-' : tempFile // Stream if pre-merged, otherwise merge to file
+                    };
                     break;
                 case '720p':
-                    formatCode = '22'; // 720p MP4 (H.264, AAC)
+                    formatCode = formats.find(f => f.format_id === '22') ? '22' : 'bestvideo[height<=720]+bestaudio/best[height<=720]';
+                    downloadOptions = {
+                        format: formatCode,
+                        mergeOutputFormat: 'mp4',
+                        output: formatCode === '22' ? '-' : tempFile // Stream if pre-merged, otherwise merge to file
+                    };
                     break;
                 case '1080p':
-                    formatCode = '137+140'; // 1080p video (H.264) + audio (AAC)
+                    formatCode = '137+140'; // 1080p video + audio
+                    downloadOptions = {
+                        format: formatCode,
+                        mergeOutputFormat: 'mp4',
+                        output: tempFile // Always merge to file for 1080p
+                    };
                     break;
                 default:
-                    formatCode = 'bestvideo+bestaudio'; // Fallback
+                    formatCode = 'bestvideo+bestaudio';
+                    downloadOptions = {
+                        format: formatCode,
+                        mergeOutputFormat: 'mp4',
+                        output: '-'
+                    };
             }
-
-            downloadOptions = {
-                format: formatCode,
-                mergeOutputFormat: 'mp4', // Ensure merged output is MP4
-                output: '-', // Stream to stdout
-                recodeVideo: 'mp4', // Force MP4 encoding if needed
-                noCheckCertificates: true // Handle potential SSL issues
-            };
             console.log('MP4 options:', downloadOptions);
-        }
 
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Type', contentType);
 
-        // Stream the download
-        try {
-            const download = youtubedl.exec(url, downloadOptions);
+            try {
+                if (downloadOptions.output === '-') {
+                    // Direct streaming for pre-merged formats (480p '18', 720p '22')
+                    const download = youtubedl.exec(url, downloadOptions);
+                    download.stdout.pipe(res);
 
-            download.stdout.on('data', () => {
-                console.log('Streaming data...');
-            });
+                    download.on('error', (err) => {
+                        console.error('MP4 Download error:', err.message);
+                        if (!res.headersSent) {
+                            res.render('index', { error: `Error during MP4 download (${quality}): ${err.message}` });
+                        }
+                    });
+                    download.on('end', () => {
+                        console.log('MP4 Download completed');
+                        if (!res.headersSent) res.end();
+                    });
+                } else {
+                    // Download to temp file and stream for merging cases
+                    await youtubedl(url, downloadOptions);
+                    console.log(`${quality} file created at:`, tempFile);
 
-            download.stdout.pipe(res);
+                    const readStream = fs.createReadStream(tempFile);
+                    readStream.pipe(res);
 
-            download.on('error', (err) => {
-                console.error('Download error:', err.message);
-                if (!res.headersSent) {
-                    res.render('index', { error: 'Error during download: ' + err.message });
+                    readStream.on('error', (err) => {
+                        console.error('Read stream error:', err.message);
+                        if (!res.headersSent) {
+                            res.render('index', { error: `Error streaming ${quality}: ${err.message}` });
+                        }
+                    });
+
+                    readStream.on('end', async () => {
+                        console.log(`${quality} streaming completed`);
+                        try {
+                            await unlinkAsync(tempFile);
+                            console.log('Temp file deleted');
+                            if (!res.headersSent) res.end();
+                        } catch (cleanupErr) {
+                            console.error('Cleanup error:', cleanupErr.message);
+                        }
+                    });
                 }
-            });
-
-            download.on('end', () => {
-                console.log('Download completed');
+            } catch (streamErr) {
+                console.error('Stream setup error:', streamErr.message);
                 if (!res.headersSent) {
-                    res.end();
+                    res.render('index', { error: `Failed to start ${quality} download: ${streamErr.message}` });
                 }
-            });
-
-        } catch (streamErr) {
-            console.error('Stream setup error:', streamErr.message);
-            if (!res.headersSent) {
-                res.render('index', { error: 'Failed to start download: ' + streamErr.message });
             }
         }
-
     } catch (error) {
         console.error('General error:', error.message);
         if (!res.headersSent) {
