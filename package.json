@@ -1,10 +1,14 @@
 {
   "name": "youtube-downloader",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "api/index.js",
   "scripts": {
+<<<<<<< Updated upstream
     "start": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+=======
+    "start": "node api/index.js"
+>>>>>>> Stashed changes
   },
   "keywords": [],
   "author": "",
@@ -15,5 +19,9 @@
     "express": "^4.21.2",
     "path": "^0.12.7",
     "youtube-dl-exec": "^3.0.16"
+  },
+  "engines": {
+    "node" : "v20.18.0"
   }
 }
+
