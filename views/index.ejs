@@ -14,6 +14,10 @@
             <p class="error"><%= error %></p>
         <% } %>
 
+        <% if (output !== null && output !== undefined) { %>
+            <p class="output"><%= output %></p>
+        <% } %>
+
         <form action="/download" method="POST">
             <div class="form-group">
                 <label for="url">YouTube URL:</label>
